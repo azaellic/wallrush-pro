@@ -1,0 +1,2154 @@
+<!DOCTYPE html>
+<html lang="id" class="h-full overflow-hidden">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>WALLRUSH PRO</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="/socket.io/socket.io.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;800;900&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        html, body {
+            height: 100%;
+            width: 100%;
+            overflow: hidden;
+            margin: 0;
+            padding: 0;
+            background: radial-gradient(circle at 50% 20%, #0f172a 0%, #030712 100%);
+            color: #ffffff;
+            font-family: 'Inter', sans-serif;
+            touch-action: manipulation;
+            user-select: none;
+        }
+
+        .font-orbitron {
+            font-family: 'Orbitron', sans-serif;
+        }
+
+        .glass-panel {
+            background: rgba(15, 23, 42, 0.85);
+            backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
+        }
+
+        .glass-card {
+            background: rgba(30, 41, 59, 0.6);
+            backdrop-filter: blur(8px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            transition: all 0.2s ease;
+        }
+
+        .glass-card:hover:not(.disabled) {
+            background: rgba(51, 65, 85, 0.8);
+            border-color: rgba(59, 130, 246, 0.5);
+            transform: translateY(-2px);
+        }
+
+        .arena-container {
+            position: relative;
+            background: #080d1a;
+            border: 2px solid rgba(59, 130, 246, 0.4);
+            box-shadow: 0 0 30px rgba(15, 23, 42, 0.9), inset 0 0 20px rgba(0, 0, 0, 0.9);
+            border-radius: 16px;
+            padding: 6px;
+        }
+
+        #grid-board {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            display: grid;
+            grid-template-columns: repeat(11, 1fr);
+            grid-template-rows: repeat(11, 1fr);
+            gap: 3px;
+        }
+
+        /* Canvas Fog Of War & Obor Sudut untuk Mode Zombie */
+        #zombie-fog-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 40;
+            border-radius: 12px;
+            opacity: 1;
+        }
+
+        .grid-cell {
+            position: relative;
+            border-radius: 3px;
+            transition: background-color 0.15s ease;
+            z-index: 5;
+        }
+
+        .grid-cell-even { background-color: #111c30; }
+        .grid-cell-odd { background-color: #192742; }
+
+        .grid-cell-moveable {
+            cursor: pointer !important;
+            z-index: 15 !important;
+            border: 2px dashed rgba(59, 130, 246, 0.9) !important;
+            animation: pulseMove 1.2s infinite alternate;
+        }
+
+        @keyframes pulseMove {
+            0% { opacity: 0.6; box-shadow: inset 0 0 8px currentColor; }
+            100% { opacity: 1; box-shadow: inset 0 0 16px currentColor; }
+        }
+
+        .finish-cell {
+            position: relative;
+            z-index: 6;
+            border-radius: 3px;
+            overflow: hidden;
+            box-shadow: 0 0 15px rgba(234, 179, 8, 0.5);
+        }
+
+        .finish-cell::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: conic-gradient(#ff0000, #ff7300, #fffb00, #48ff00, #00ffd5, #002bfd, #7a00ff, #ff00c8, #ff0000);
+            animation: rotateBorder 2.5s linear infinite;
+            z-index: -2;
+        }
+
+        .finish-cell::after {
+            content: '';
+            position: absolute;
+            inset: 2px;
+            background-color: #111c30;
+            border-radius: 2px;
+            z-index: -1;
+        }
+
+        @keyframes rotateBorder {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .player-ball {
+            position: absolute;
+            border-radius: 50%;
+            border: 2px solid #ffffff;
+            box-sizing: border-box;
+            transition: all 0.22s cubic-bezier(0.34, 1.56, 0.64, 1);
+            z-index: 25;
+            pointer-events: none;
+        }
+
+        .wall-placed {
+            position: absolute;
+            border-radius: 3px;
+            z-index: 30;
+            box-shadow: 0 0 8px currentColor;
+            pointer-events: none;
+        }
+
+        .wall-intersection {
+            position: absolute;
+            z-index: 35;
+            border-radius: 4px;
+            transition: background-color 0.1s ease, transform 0.1s ease;
+            cursor: grab;
+        }
+
+        .wall-intersection.active-selectable {
+            background-color: rgba(59, 130, 246, 0.35);
+            border: 1px dashed rgba(59, 130, 246, 0.8);
+        }
+
+        .wall-intersection.drag-over-valid {
+            background-color: rgba(34, 197, 94, 0.85) !important;
+            box-shadow: 0 0 15px #22c55e;
+            transform: scale(1.2);
+        }
+
+        .wall-intersection.drag-over-invalid {
+            background-color: rgba(239, 68, 68, 0.85) !important;
+            box-shadow: 0 0 15px #ef4444;
+        }
+
+        .wall-shape-h {
+            width: 54px;
+            height: 14px;
+            background: linear-gradient(180deg, #60a5fa 0%, #2563eb 100%);
+            border: 1.5px solid #93c5fd;
+            border-radius: 4px;
+            box-shadow: 0 0 10px rgba(59, 130, 246, 0.6);
+            cursor: grab;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .wall-shape-v {
+            width: 14px;
+            height: 54px;
+            background: linear-gradient(90deg, #60a5fa 0%, #2563eb 100%);
+            border: 1.5px solid #93c5fd;
+            border-radius: 4px;
+            box-shadow: 0 0 10px rgba(59, 130, 246, 0.6);
+            cursor: grab;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        #drag-ghost {
+            position: fixed;
+            pointer-events: none;
+            z-index: 9999;
+            opacity: 0.85;
+            transform: translate(-50%, -50%);
+            display: none;
+            border-radius: 4px;
+            box-shadow: 0 0 15px rgba(59, 130, 246, 0.8);
+        }
+
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #0f172a; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+    </style>
+</head>
+<body class="h-screen w-screen overflow-hidden flex flex-col items-center justify-start p-2 sm:p-3 pt-3 sm:pt-4">
+
+    <div id="drag-ghost"></div>
+
+    <!-- PAGE 1: LOGIN -->
+    <div id="page-login" class="w-full max-w-md glass-panel p-6 sm:p-8 rounded-3xl flex flex-col items-center gap-6 my-auto z-10">
+        <div class="text-center">
+            <h1 class="text-3xl sm:text-4xl font-extrabold font-orbitron tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-blue-400 via-indigo-300 to-purple-500 drop-shadow-[0_0_20px_rgba(59,130,246,0.6)]">
+                WALLRUSH PRO
+            </h1>
+            <p class="text-gray-400 text-xs sm:text-sm mt-1">Sistem Pertempuran Maze Taktis</p>
+        </div>
+
+        <div class="w-full space-y-4">
+            <div>
+                <label class="block text-xs font-semibold text-gray-300 uppercase tracking-wider mb-2">Username Player</label>
+                <input type="text" id="input-username" maxlength="15" placeholder="Masukkan Username..." 
+                    class="w-full bg-slate-900/90 border border-slate-700 focus:border-blue-500 rounded-xl px-4 py-3 text-white text-sm outline-none transition placeholder-gray-500 font-medium">
+                <p id="login-error" class="text-red-400 text-xs mt-1 hidden"></p>
+            </div>
+
+            <button id="btn-login" class="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-orbitron font-bold py-3.5 rounded-xl transition shadow-lg shadow-blue-600/30 flex items-center justify-center gap-2">
+                <span>MASUK GAME</span>
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
+            </button>
+        </div>
+    </div>
+
+    <!-- PAGE 2: MAIN MENU -->
+    <div id="page-menu" class="w-full max-w-2xl glass-panel p-6 sm:p-8 rounded-3xl flex flex-col gap-6 hidden z-10 mt-1 sm:mt-2">
+        <div class="flex items-center justify-between border-b border-white/10 pb-4">
+            <div class="flex items-center gap-3">
+                <div id="user-avatar" class="w-12 h-12 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-400 flex items-center justify-center text-white font-orbitron font-bold text-xl shadow-md border border-white/20">
+                    U
+                </div>
+                <div>
+                    <h2 id="display-username" class="font-orbitron font-bold text-lg text-white">PlayerOne</h2>
+                    <div class="flex items-center gap-1.5 mt-0.5">
+                        <span class="text-xs text-blue-400 font-semibold tracking-wider">● ONLINE</span>
+                        <span class="text-xs text-white/30">|</span>
+                        <span class="text-xs text-amber-400 font-semibold flex items-center gap-0.5">★ <span id="permanent-stars">0</span></span>
+                    </div>
+                </div>
+            </div>
+            <button id="btn-logout" class="text-xs bg-slate-800 hover:bg-slate-700 border border-slate-600 text-gray-300 px-3 py-1.5 rounded-lg transition">
+                Ganti Akun
+            </button>
+        </div>
+
+        <div>
+            <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Pilih Mode Permainan</h3>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div id="mode-klasik" class="glass-card p-4 rounded-2xl cursor-pointer border-l-4 border-l-blue-500 relative overflow-hidden group">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="font-orbitron font-bold text-blue-400 text-base">KLASIK</span>
+                        <span class="text-[10px] bg-blue-500/20 text-blue-300 px-2 py-0.5 rounded-full font-bold">MULTIPLAYER</span>
+                    </div>
+                    <p class="text-xs text-gray-300">Arena 11x11, 10 Walls tiap player. Berlomba ke bintang tengah!</p>
+                </div>
+
+                <div id="mode-zombie" class="glass-card p-4 rounded-2xl cursor-pointer border-l-4 border-l-emerald-500 relative overflow-hidden group">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="font-orbitron font-bold text-emerald-400 text-base">ZOMBIE</span>
+                        <span class="text-[10px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-full font-bold">SURVIVAL</span>
+                    </div>
+                    <p class="text-xs text-gray-300">Bertahan hidup 1 menit di labirin gelap dari infeksi zombie!</p>
+                </div>
+
+                <div class="glass-card disabled p-4 rounded-2xl opacity-50 cursor-not-allowed border-l-4 border-l-gray-600 relative overflow-hidden">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="font-orbitron font-bold text-gray-400 text-base">LABIRIN</span>
+                        <span class="text-[10px] bg-gray-700 text-gray-300 px-2 py-0.5 rounded-full font-bold">SOON</span>
+                    </div>
+                    <p class="text-xs text-gray-400">Navigasi dinding otomatis yang bergerak acak.</p>
+                </div>
+
+                <div class="glass-card disabled p-4 rounded-2xl opacity-50 cursor-not-allowed border-l-4 border-l-gray-600 relative overflow-hidden">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="font-orbitron font-bold text-gray-400 text-base">DUEL</span>
+                        <span class="text-[10px] bg-gray-700 text-gray-300 px-2 py-0.5 rounded-full font-bold">SOON</span>
+                    </div>
+                    <p class="text-xs text-gray-400">Satu lawan satu 1v1 intensif dalam arena lebih kecil.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- PAGE 3: ROOM LOBBY SELECTION -->
+    <div id="page-rooms" class="w-full max-w-2xl glass-panel p-6 sm:p-8 rounded-3xl flex flex-col gap-5 hidden z-10 mt-1 sm:mt-2">
+        <div class="flex items-center justify-between border-b border-white/10 pb-4">
+            <button id="btn-back-menu" class="text-xs bg-slate-800 hover:bg-slate-700 border border-slate-600 text-gray-300 px-3 py-1.5 rounded-lg transition flex items-center gap-1">
+                ← Kembali
+            </button>
+            <h2 id="room-mode-title" class="font-orbitron font-bold text-base sm:text-lg text-white">LOBBY KLASIK</h2>
+            <div></div>
+        </div>
+
+        <div class="flex flex-col sm:flex-row gap-3">
+            <input type="text" id="input-room-name" maxlength="20" placeholder="Nama Room Baru..." 
+                class="flex-1 bg-slate-900/90 border border-slate-700 focus:border-blue-500 rounded-xl px-4 py-2.5 text-white text-sm outline-none">
+            <button id="btn-create-room" class="bg-blue-600 hover:bg-blue-500 text-white font-orbitron font-semibold px-5 py-2.5 rounded-xl transition shadow-md shadow-blue-600/30 whitespace-nowrap text-sm">
+                + BUAT ROOM
+            </button>
+        </div>
+
+        <div>
+            <div class="flex justify-between items-center mb-2">
+                <span class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Daftar Room Aktif</span>
+                <span class="text-[10px] text-blue-400 animate-pulse">● Auto Refresh</span>
+            </div>
+            
+            <div id="room-list" class="space-y-2 max-h-56 overflow-y-auto pr-1">
+                <div class="p-4 text-center text-xs text-gray-500 bg-slate-900/40 rounded-xl border border-white/5">
+                    Belum ada room dibuat. Buat room baru untuk memulai!
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- PAGE 4: ROOM WAITING LOBBY -->
+    <div id="page-lobby" class="w-full max-w-lg glass-panel p-6 sm:p-8 rounded-3xl flex flex-col gap-5 text-center hidden z-10 mt-1 sm:mt-2">
+        <div>
+            <span id="lobby-mode-tag" class="text-xs font-semibold text-blue-400 uppercase tracking-widest">Lobby Ruangan</span>
+            <h2 id="lobby-room-title" class="text-2xl font-orbitron font-extrabold text-white mt-0.5">ROOM MATT</h2>
+        </div>
+
+        <div class="bg-slate-900/80 p-4 rounded-2xl border border-white/10 flex flex-col items-center justify-center">
+            <span class="text-xs text-gray-400 mb-1">MEMULAI OTOMATIS DALAM</span>
+            <div id="lobby-timer" class="text-4xl font-orbitron font-extrabold text-amber-400 drop-shadow-[0_0_10px_rgba(251,191,36,0.6)]">
+                10
+            </div>
+            <span class="text-[10px] text-gray-400 mt-1">Slot kosong akan diisi oleh BOT AI cerdas</span>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3 text-left">
+            <div id="slot-0" class="p-3 bg-slate-800/80 border border-blue-500/50 rounded-xl flex items-center justify-between">
+                <span class="text-xs font-bold text-blue-400 truncate" id="slot-0-name">Menunggu...</span>
+                <span class="text-[10px] bg-blue-500/20 text-blue-300 px-1.5 py-0.5 rounded">P1</span>
+            </div>
+            <div id="slot-1" class="p-3 bg-slate-800/80 border border-white/5 rounded-xl flex items-center justify-between">
+                <span class="text-xs font-bold text-gray-400 truncate" id="slot-1-name">Menunggu...</span>
+                <span class="text-[10px] bg-yellow-500/20 text-yellow-300 px-1.5 py-0.5 rounded">P2</span>
+            </div>
+            <div id="slot-2" class="p-3 bg-slate-800/80 border border-white/5 rounded-xl flex items-center justify-between">
+                <span class="text-xs font-bold text-gray-400 truncate" id="slot-2-name">Menunggu...</span>
+                <span class="text-[10px] bg-green-500/20 text-green-300 px-1.5 py-0.5 rounded">P3</span>
+            </div>
+            <div id="slot-3" class="p-3 bg-slate-800/80 border border-white/5 rounded-xl flex items-center justify-between">
+                <span class="text-xs font-bold text-gray-400 truncate" id="slot-3-name">Menunggu...</span>
+                <span class="text-[10px] bg-red-500/20 text-red-300 px-1.5 py-0.5 rounded">P4</span>
+            </div>
+        </div>
+
+        <div class="flex gap-3">
+            <button id="btn-leave-lobby" class="flex-1 bg-slate-800 hover:bg-slate-700 text-gray-300 text-xs font-semibold py-3 rounded-xl border border-slate-600 transition">
+                Batal / Keluar
+            </button>
+            <button id="btn-start-now" class="flex-1 bg-blue-600 hover:bg-blue-500 text-white font-orbitron font-bold text-xs py-3 rounded-xl transition shadow-lg shadow-blue-600/30 hidden">
+                MULAI SEKARANG
+            </button>
+        </div>
+    </div>
+
+    <!-- PAGE 5: GAME ARENA -->
+    <div id="page-game" class="w-full max-w-[540px] flex flex-col items-center justify-start gap-1.5 sm:gap-2 overflow-hidden hidden pt-0">
+        <header class="text-center my-0 flex items-center justify-between w-full py-0.5">
+            <div class="flex items-center gap-2">
+                <h1 class="text-lg sm:text-2xl font-extrabold font-orbitron tracking-widest text-white drop-shadow-[0_0_15px_rgba(255,255,255,0.4)]">
+                    WALLRUSH PRO
+                </h1>
+                <span id="zombie-timer-display" class="hidden text-sm sm:text-base font-orbitron font-bold text-emerald-400 bg-slate-900/90 px-2.5 py-0.5 rounded-lg border border-emerald-500/40">
+                    ⏱ 01:00
+                </span>
+            </div>
+            <button id="btn-exit-game" class="text-[10px] bg-slate-800 hover:bg-slate-700 border border-slate-600 text-gray-300 px-2 py-0.5 rounded-lg transition">
+                Menyerah
+            </button>
+        </header>
+
+        <div class="grid grid-cols-2 gap-1.5 w-full">
+            <div id="panel-0" class="glass-panel p-1.5 rounded-xl flex flex-col justify-between border-l-4 border-blue-500 transition-all duration-300">
+                <div class="flex justify-between items-center mb-0.5">
+                    <span id="name-0" class="font-orbitron font-bold text-xs tracking-wide text-blue-400 truncate max-w-[85px]">P1</span>
+                    <div class="flex items-center gap-1 bg-white/10 px-1.5 py-0.5 rounded-full text-[10px] font-semibold text-white">
+                        <span class="text-amber-400">★</span><span id="star-0">0</span>
+                    </div>
+                </div>
+                <div class="flex items-center justify-between text-[10px] text-gray-300 mb-0.5">
+                    <span id="walls-wrapper-0"><span><span id="walls-0" class="font-bold text-white">10</span> Walls</span></span>
+                    <span class="text-gray-400 font-mono">STEPS: <span id="dist-0" class="text-white font-bold">--</span></span>
+                </div>
+                <div class="w-full bg-gray-800/80 rounded-full h-1 overflow-hidden border border-white/5">
+                    <div id="bar-0" class="bg-blue-500 h-full rounded-full transition-all duration-300 w-full"></div>
+                </div>
+            </div>
+
+            <div id="panel-1" class="glass-panel p-1.5 rounded-xl flex flex-col justify-between border-l-4 border-yellow-500 transition-all duration-300">
+                <div class="flex justify-between items-center mb-0.5">
+                    <span id="name-1" class="font-orbitron font-bold text-xs tracking-wide text-yellow-400 truncate max-w-[85px]">P2</span>
+                    <div class="flex items-center gap-1 bg-white/10 px-1.5 py-0.5 rounded-full text-[10px] font-semibold text-white">
+                        <span class="text-amber-400">★</span><span id="star-1">0</span>
+                    </div>
+                </div>
+                <div class="flex items-center justify-between text-[10px] text-gray-300 mb-0.5">
+                    <span id="walls-wrapper-1"><span><span id="walls-1" class="font-bold text-white">10</span> Walls</span></span>
+                    <span class="text-gray-400 font-mono">STEPS: <span id="dist-1" class="text-white font-bold">--</span></span>
+                </div>
+                <div class="w-full bg-gray-800/80 rounded-full h-1 overflow-hidden border border-white/5">
+                    <div id="bar-1" class="bg-yellow-500 h-full rounded-full transition-all duration-300 w-full"></div>
+                </div>
+            </div>
+
+            <div id="panel-2" class="glass-panel p-1.5 rounded-xl flex flex-col justify-between border-l-4 border-green-500 transition-all duration-300">
+                <div class="flex justify-between items-center mb-0.5">
+                    <span id="name-2" class="font-orbitron font-bold text-xs tracking-wide text-green-400 truncate max-w-[85px]">P3</span>
+                    <div class="flex items-center gap-1 bg-white/10 px-1.5 py-0.5 rounded-full text-[10px] font-semibold text-white">
+                        <span class="text-amber-400">★</span><span id="star-2">0</span>
+                    </div>
+                </div>
+                <div class="flex items-center justify-between text-[10px] text-gray-300 mb-0.5">
+                    <span id="walls-wrapper-2"><span><span id="walls-2" class="font-bold text-white">10</span> Walls</span></span>
+                    <span class="text-gray-400 font-mono">STEPS: <span id="dist-2" class="text-white font-bold">--</span></span>
+                </div>
+                <div class="w-full bg-gray-800/80 rounded-full h-1 overflow-hidden border border-white/5">
+                    <div id="bar-2" class="bg-green-500 h-full rounded-full transition-all duration-300 w-full"></div>
+                </div>
+            </div>
+
+            <div id="panel-3" class="glass-panel p-1.5 rounded-xl flex flex-col justify-between border-l-4 border-red-500 transition-all duration-300">
+                <div class="flex justify-between items-center mb-0.5">
+                    <span id="name-3" class="font-orbitron font-bold text-xs tracking-wide text-red-400 truncate max-w-[85px]">P4</span>
+                    <div class="flex items-center gap-1 bg-white/10 px-1.5 py-0.5 rounded-full text-[10px] font-semibold text-white">
+                        <span class="text-amber-400">★</span><span id="star-3">0</span>
+                    </div>
+                </div>
+                <div class="flex items-center justify-between text-[10px] text-gray-300 mb-0.5">
+                    <span id="walls-wrapper-3"><span><span id="walls-3" class="font-bold text-white">10</span> Walls</span></span>
+                    <span class="text-gray-400 font-mono">STEPS: <span id="dist-3" class="text-white font-bold">--</span></span>
+                </div>
+                <div class="w-full bg-gray-800/80 rounded-full h-1 overflow-hidden border border-white/5">
+                    <div id="bar-3" class="bg-red-500 h-full rounded-full transition-all duration-300 w-full"></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="arena-container w-full aspect-square max-h-[52vh]">
+            <div id="grid-board"></div>
+            <canvas id="zombie-fog-canvas" class="hidden"></canvas>
+        </div>
+
+        <div id="action-dock" class="glass-panel w-full p-2 rounded-2xl flex items-center justify-between gap-2 border border-white/10 mt-0.5">
+            <div class="flex flex-col">
+                <span class="text-xs font-orbitron font-bold text-white">PASANG WALL:</span>
+                <span id="wall-hint" class="text-[10px] text-gray-400">Geser wall ke arena secara langsung</span>
+            </div>
+
+            <div class="flex items-center gap-4 pr-2">
+                <div id="dock-wall-h" class="wall-shape-h"></div>
+                <div id="dock-wall-v" class="wall-shape-v"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Victory Modal Banner -->
+    <div id="victory-modal" class="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center hidden z-50 p-4">
+        <div class="glass-panel p-6 sm:p-8 rounded-3xl max-w-sm w-full text-center flex flex-col items-center border border-white/20 shadow-2xl">
+            <div class="text-5xl mb-2" id="victory-icon">🏆</div>
+            <h2 class="text-2xl font-orbitron font-extrabold mb-1 tracking-wide" id="winner-name">BLUE WINS!</h2>
+            <p class="text-gray-300 text-xs mb-6" id="winner-desc">Mencapai pusat arena dan memenangkan ★ 1 Poin permanen!</p>
+            <button id="btn-next-round" class="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-orbitron font-bold py-3 rounded-xl transition shadow-lg shadow-blue-600/30">
+                KEMBALI KE LOBBY
+            </button>
+        </div>
+    </div>
+
+    <!-- Sound Audio Generator -->
+    <script>
+        class SoundFX {
+            constructor() { this.ctx = null; }
+            init() {
+                if (!this.ctx) {
+                    const AudioContext = window.AudioContext || window.webkitAudioContext;
+                    if (AudioContext) this.ctx = new AudioContext();
+                }
+            }
+            playMove() {
+                this.init(); if (!this.ctx) return;
+                const osc = this.ctx.createOscillator(), gain = this.ctx.createGain();
+                osc.type = 'sine'; osc.frequency.setValueAtTime(320, this.ctx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(520, this.ctx.currentTime + 0.08);
+                gain.gain.setValueAtTime(0.12, this.ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.08);
+                osc.connect(gain); gain.connect(this.ctx.destination);
+                osc.start(); osc.stop(this.ctx.currentTime + 0.08);
+            }
+            playWall() {
+                this.init(); if (!this.ctx) return;
+                const osc = this.ctx.createOscillator(), gain = this.ctx.createGain();
+                osc.type = 'triangle'; osc.frequency.setValueAtTime(200, this.ctx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(80, this.ctx.currentTime + 0.12);
+                gain.gain.setValueAtTime(0.2, this.ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.12);
+                osc.connect(gain); gain.connect(this.ctx.destination);
+                osc.start(); osc.stop(this.ctx.currentTime + 0.12);
+            }
+            playClick() {
+                this.init(); if (!this.ctx) return;
+                const osc = this.ctx.createOscillator(), gain = this.ctx.createGain();
+                osc.type = 'sine'; osc.frequency.setValueAtTime(600, this.ctx.currentTime);
+                gain.gain.setValueAtTime(0.05, this.ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.04);
+                osc.connect(gain); gain.connect(this.ctx.destination);
+                osc.start(); osc.stop(this.ctx.currentTime + 0.04);
+            }
+            playInfect() {
+                this.init(); if (!this.ctx) return;
+                const osc = this.ctx.createOscillator(), gain = this.ctx.createGain();
+                osc.type = 'sawtooth'; osc.frequency.setValueAtTime(150, this.ctx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(40, this.ctx.currentTime + 0.25);
+                gain.gain.setValueAtTime(0.25, this.ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.25);
+                osc.connect(gain); gain.connect(this.ctx.destination);
+                osc.start(); osc.stop(this.ctx.currentTime + 0.25);
+            }
+            playVictory() {
+                this.init(); if (!this.ctx) return;
+                [440, 554.37, 659.25, 880].forEach((freq, idx) => {
+                    const osc = this.ctx.createOscillator(), gain = this.ctx.createGain();
+                    osc.type = 'sine'; osc.frequency.setValueAtTime(freq, this.ctx.currentTime + idx * 0.1);
+                    gain.gain.setValueAtTime(0.18, this.ctx.currentTime + idx * 0.1);
+                    gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + idx * 0.1 + 0.3);
+                    osc.connect(gain); gain.connect(this.ctx.destination);
+                    osc.start(this.ctx.currentTime + idx * 0.1); osc.stop(this.ctx.currentTime + idx * 0.1 + 0.3);
+                });
+            }
+        }
+        const soundFX = new SoundFX();
+    </script>
+
+    <!-- Main Game Logic Script (Socket.IO Realtime) -->
+    <script>
+        const socket = io();
+
+        const GRID_SIZE = 11;
+        const TARGET_ROW = 5;
+        const TARGET_COL = 5;
+        const INITIAL_WALLS = 10;
+
+        let selectedGameMode = 'klasik'; 
+        let currentUsername = '';
+        let activeRoom = null;
+
+        const BASE_SPAWN_POSITIONS = [
+            { startRow: 0, startCol: 10 },
+            { startRow: 10, startCol: 0 },
+            { startRow: 0, startCol: 0 },
+            { startRow: 10, startCol: 10 }
+        ];
+
+        let playerStates = [];
+        let stars = [0, 0, 0, 0];
+        let hWalls = Array(GRID_SIZE - 1).fill().map(() => Array(GRID_SIZE).fill(null));
+        let vWalls = Array(GRID_SIZE).fill().map(() => Array(GRID_SIZE - 1).fill(null));
+        let wallCounter = 0;
+
+        let currentPlayerIndex = 0;
+        let isPlaying = false;
+        let localPlayerId = 0;
+        let draggedWallType = null;
+        let turnIdleTimer = null;
+
+        /* --- MODE ZOMBIE SCRIPT VARIABLES --- */
+        let zombieTimerSeconds = 60;
+        let zombieTimerInterval = null;
+        let lastMoveTime = [0, 0, 0, 0];
+        let initialZombieCoreIds = [];
+        let zombieAiLoop = null;
+        let zombieAnimFrameId = null;
+        let transitionTriggered = false;
+        let botPatrolTargets = [null, null, null, null];
+        let botTargetPos = [null, null, null, null];
+        let botHumanAlertState = [false, false, false, false];
+
+        const pageLogin = document.getElementById('page-login');
+        const pageMenu = document.getElementById('page-menu');
+        const pageRooms = document.getElementById('page-rooms');
+        const pageLobby = document.getElementById('page-lobby');
+        const pageGame = document.getElementById('page-game');
+
+        function showPage(targetPage) {
+            [pageLogin, pageMenu, pageRooms, pageLobby, pageGame].forEach(p => p.classList.add('hidden'));
+            targetPage.classList.remove('hidden');
+        }
+
+        function getPermanentStars() {
+            return parseInt(localStorage.getItem('wallrush_permanent_stars') || '0', 10);
+        }
+
+        function addPermanentStar() {
+            const current = getPermanentStars();
+            const updated = current + 1;
+            localStorage.setItem('wallrush_permanent_stars', updated);
+            updatePermanentStarsUI();
+        }
+
+        function updatePermanentStarsUI() {
+            const el = document.getElementById('permanent-stars');
+            if (el) el.textContent = getPermanentStars();
+        }
+
+        document.getElementById('btn-login').addEventListener('click', () => {
+            soundFX.playClick();
+            const input = document.getElementById('input-username');
+            const val = input.value.trim();
+            const err = document.getElementById('login-error');
+
+            if (!val) {
+                err.textContent = 'Username tidak boleh kosong!';
+                err.classList.remove('hidden');
+                return;
+            }
+            socket.emit('CHECK_USERNAME', { username: val });
+        });
+
+        socket.on('USERNAME_CHECK_RESULT', (data) => {
+            const val = document.getElementById('input-username').value.trim();
+            const err = document.getElementById('login-error');
+
+            if (!data.available) {
+                err.textContent = 'Username telah digunakan oleh player lain di room aktif!';
+                err.classList.remove('hidden');
+                return;
+            }
+
+            err.classList.add('hidden');
+            currentUsername = val;
+            localStorage.setItem('wallrush_username', currentUsername);
+
+            document.getElementById('display-username').textContent = currentUsername;
+            document.getElementById('user-avatar').textContent = currentUsername.charAt(0).toUpperCase();
+            updatePermanentStarsUI();
+            showPage(pageMenu);
+        });
+
+        socket.on('FORCE_LEAVE', (msg) => {
+            alert(msg);
+            clearTurnIdleTimer();
+            stopZombieTimers();
+            isPlaying = false;
+            activeRoom = null;
+            showPage(pageRooms);
+            socket.emit('GET_ROOMS');
+        });
+
+        document.getElementById('btn-logout').addEventListener('click', () => {
+            soundFX.playClick();
+            currentUsername = '';
+            localStorage.removeItem('wallrush_username');
+            showPage(pageLogin);
+        });
+
+        socket.on('ROOM_LIST', (roomList) => {
+            refreshRoomListUI(roomList);
+        });
+
+        socket.on('ROOM_CREATED', (room) => {
+            activeRoom = room;
+            enterLobby();
+        });
+
+        socket.on('JOIN_ERROR', (msg) => {
+            alert(msg);
+        });
+
+        socket.on('ROOM_STATE_UPDATE', (room) => {
+            activeRoom = room;
+            updateLobbyUI();
+        });
+
+        socket.on('LOBBY_TIMER_SYNC', ({ countdown }) => {
+            const timerEl = document.getElementById('lobby-timer');
+            if (timerEl) timerEl.textContent = countdown;
+        });
+
+        socket.on('GAME_STARTED', (room) => {
+            activeRoom = room;
+            startArenaGame();
+        });
+
+        socket.on('SYNC_GAME_ACTION', ({ actionType, payload }) => {
+            if (!isPlaying) return;
+
+            if (actionType === 'MOVE') {
+                const p = playerStates[payload.playerIdx];
+                if (!p || !p.active) return;
+                
+                p.row = payload.r;
+                p.col = payload.c;
+                positionBalls();
+                soundFX.playMove();
+                updateUI(); // Memastikan penanda langkah (arah step) selalu stabil dan ter-refresh!
+
+                if (selectedGameMode === 'klasik') {
+                    if (p.row === TARGET_ROW && p.col === TARGET_COL) {
+                        stars[p.id]++;
+                        soundFX.playVictory();
+                        if (p.socketId === socket.id || (!p.isBot && p.name === currentUsername)) {
+                            addPermanentStar();
+                        }
+                        showVictory(p.name + ' WINS!', p.color, 'Mencapai pusat arena dan memenangkan ★ 1 Poin permanen!');
+                        return;
+                    }
+                    advanceTurn();
+                } else if (selectedGameMode === 'zombie') {
+                    checkZombieInfections();
+                }
+            } else if (actionType === 'WALL') {
+                const p = playerStates[payload.playerIdx];
+                if (!p || !p.active) return;
+                executeWallPlacement(payload.type, payload.r, payload.c, p);
+                if (selectedGameMode === 'klasik') {
+                    advanceTurn();
+                }
+            } else if (actionType === 'PLAYER_KICKED') {
+                const p = playerStates[payload.playerIdx];
+                if (p) {
+                    p.active = false;
+                    const ball = document.getElementById(`ball-${p.id}`);
+                    if (ball) ball.remove();
+                    const panel = document.getElementById(`panel-${p.id}`);
+                    if (panel) panel.style.display = 'none';
+                }
+                if (payload.playerIdx === localPlayerId) {
+                    alert('Anda dikeluarkan dari room!');
+                    clearTurnIdleTimer();
+                    stopZombieTimers();
+                    isPlaying = false;
+                    activeRoom = null;
+                    showPage(pageRooms);
+                    socket.emit('GET_ROOMS');
+                } else if (selectedGameMode === 'klasik' && currentPlayerIndex === payload.playerIdx) {
+                    advanceTurn();
+                }
+            }
+        });
+
+        document.getElementById('mode-klasik').addEventListener('click', () => {
+            soundFX.playClick();
+            selectedGameMode = 'klasik';
+            document.getElementById('room-mode-title').textContent = 'LOBBY KLASIK';
+            showPage(pageRooms);
+            socket.emit('GET_ROOMS');
+        });
+
+        document.getElementById('mode-zombie').addEventListener('click', () => {
+            soundFX.playClick();
+            selectedGameMode = 'zombie';
+            document.getElementById('room-mode-title').textContent = 'LOBBY ZOMBIE';
+            showPage(pageRooms);
+            socket.emit('GET_ROOMS');
+        });
+
+        document.getElementById('btn-back-menu').addEventListener('click', () => {
+            soundFX.playClick();
+            showPage(pageMenu);
+        });
+
+        document.getElementById('btn-create-room').addEventListener('click', () => {
+            soundFX.playClick();
+            const roomInput = document.getElementById('input-room-name');
+            const roomName = roomInput.value.trim() || `${currentUsername}'s Arena`;
+            socket.emit('CREATE_ROOM', { roomName, username: currentUsername, mode: selectedGameMode });
+        });
+
+        function refreshRoomListUI(roomList) {
+            const container = document.getElementById('room-list');
+            const filteredRooms = roomList ? roomList.filter(r => (r.mode || 'klasik') === selectedGameMode) : [];
+
+            if (!filteredRooms || filteredRooms.length === 0) {
+                container.innerHTML = `<div class="p-4 text-center text-xs text-gray-500 bg-slate-900/40 rounded-xl border border-white/5">
+                    Belum ada room publik untuk mode ${selectedGameMode.toUpperCase()}. Buat room baru!
+                </div>`;
+                return;
+            }
+
+            container.innerHTML = '';
+            filteredRooms.forEach(r => {
+                const div = document.createElement('div');
+                div.className = 'glass-card p-3 rounded-xl flex items-center justify-between border border-white/5';
+                div.innerHTML = `
+                    <div>
+                        <div class="font-bold text-sm text-white">${r.name}</div>
+                        <div class="text-[10px] text-gray-400">Host: ${r.host} | Player: ${r.players.length}/4 | Mode: ${(r.mode || 'klasik').toUpperCase()}</div>
+                    </div>
+                    <button class="btn-join bg-blue-600 hover:bg-blue-500 text-white text-xs px-3 py-1.5 rounded-lg font-bold" data-id="${r.id}">
+                        GABUNG
+                    </button>
+                `;
+                container.appendChild(div);
+            });
+
+            document.querySelectorAll('.btn-join').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    soundFX.playClick();
+                    const rId = e.target.dataset.id;
+                    socket.emit('JOIN_ROOM', { roomId: rId, username: currentUsername });
+                });
+            });
+        }
+
+        socket.on('ROOM_JOINED', (room) => {
+            activeRoom = room;
+            selectedGameMode = room.mode || 'klasik';
+            enterLobby();
+        });
+
+        function enterLobby() {
+            showPage(pageLobby);
+            document.getElementById('lobby-mode-tag').textContent = `LOBBY MODE ${selectedGameMode.toUpperCase()}`;
+            document.getElementById('lobby-room-title').textContent = activeRoom.name;
+            updateLobbyUI();
+        }
+
+        function updateLobbyUI() {
+            if (!activeRoom) return;
+            for (let i = 0; i < 4; i++) {
+                const nameEl = document.getElementById(`slot-${i}-name`);
+                if (activeRoom.players[i]) {
+                    nameEl.textContent = activeRoom.players[i].name;
+                    nameEl.className = 'text-xs font-bold text-white truncate';
+                } else {
+                    nameEl.textContent = 'Menunggu...';
+                    nameEl.className = 'text-xs font-bold text-gray-500 truncate';
+                }
+            }
+
+            const startBtn = document.getElementById('btn-start-now');
+            if (activeRoom && activeRoom.hostSocketId === socket.id) {
+                startBtn.classList.remove('hidden');
+            } else {
+                startBtn.classList.add('hidden');
+            }
+        }
+
+        document.getElementById('btn-start-now').addEventListener('click', () => {
+            soundFX.playClick();
+            if (activeRoom && activeRoom.hostSocketId === socket.id) {
+                socket.emit('START_GAME', { roomId: activeRoom.id });
+            }
+        });
+
+        document.getElementById('btn-leave-lobby').addEventListener('click', () => {
+            soundFX.playClick();
+            if (activeRoom) socket.emit('LEAVE_LOBBY', { roomId: activeRoom.id });
+            activeRoom = null;
+            showPage(pageRooms);
+            socket.emit('GET_ROOMS');
+        });
+
+        function startArenaGame() {
+            showPage(pageGame);
+            selectedGameMode = activeRoom ? (activeRoom.mode || 'klasik') : 'klasik';
+            transitionTriggered = false;
+
+            const shuffledSpawns = [...BASE_SPAWN_POSITIONS].sort(() => Math.random() - 0.5);
+            const klasikColorPool = ['#3b82f6', '#eab308', '#22c55e', '#ef4444', '#a855f7', '#ec4899', '#06b6d4', '#f97316'];
+
+            playerStates = Array(4).fill(null).map((_, idx) => {
+                const assigned = activeRoom && activeRoom.players[idx] ? activeRoom.players[idx] : null;
+                const spawn = shuffledSpawns[idx];
+                
+                let assignedColor = klasikColorPool[idx % klasikColorPool.length];
+                if (selectedGameMode === 'zombie') {
+                    assignedColor = '#3b82f6';
+                }
+
+                return {
+                    id: idx,
+                    name: assigned ? assigned.name : `BOT Cyber-${idx}`,
+                    socketId: assigned ? assigned.id : null,
+                    isBot: assigned ? assigned.isBot : true,
+                    row: spawn.startRow,
+                    col: spawn.startCol,
+                    walls: INITIAL_WALLS,
+                    active: true,
+                    isZombie: false,
+                    color: assignedColor
+                };
+            });
+
+            const foundIdx = playerStates.findIndex(p => p.socketId === socket.id);
+            localPlayerId = foundIdx !== -1 ? foundIdx : 0;
+
+            hWalls = Array(GRID_SIZE - 1).fill().map(() => Array(GRID_SIZE).fill(null));
+            vWalls = Array(GRID_SIZE).fill().map(() => Array(GRID_SIZE - 1).fill(null));
+            wallCounter = 0;
+
+            currentPlayerIndex = 0;
+            isPlaying = true;
+            draggedWallType = null;
+            botPatrolTargets = [null, null, null, null];
+            botTargetPos = [null, null, null, null];
+            botHumanAlertState = [false, false, false, false];
+
+            const fogCanvas = document.getElementById('zombie-fog-canvas');
+            if (fogCanvas) {
+                fogCanvas.style.transition = 'none';
+                fogCanvas.style.opacity = '1';
+            }
+
+            buildBoardUI();
+
+            if (selectedGameMode === 'zombie') {
+                document.getElementById('action-dock').classList.add('hidden');
+                fogCanvas.classList.remove('hidden');
+                document.getElementById('zombie-timer-display').classList.remove('hidden');
+
+                const indices = [0, 1, 2, 3];
+                for (let i = indices.length - 1; i > 0; i--) {
+                    const j = Math.floor(Math.random() * (i + 1));
+                    [indices[i], indices[j]] = [indices[j], indices[i]];
+                }
+                initialZombieCoreIds = [indices[0], indices[1]];
+                initialZombieCoreIds.forEach(idx => {
+                    playerStates[idx].isZombie = true;
+                    playerStates[idx].color = '#ef4444';
+                });
+
+                playerStates.forEach(p => {
+                    if (!p.isZombie) p.color = '#3b82f6';
+                });
+
+                generateProceduralZombieMaze();
+                setupZombieTimer();
+                setupZombieAiLoop();
+                startZombieAnimLoop();
+            } else {
+                document.getElementById('action-dock').classList.remove('hidden');
+                fogCanvas.classList.add('hidden');
+                document.getElementById('zombie-timer-display').classList.add('hidden');
+            }
+
+            updateUI();
+            setupFastTouchDrag();
+            document.getElementById('victory-modal').classList.add('hidden');
+
+            if (selectedGameMode === 'klasik') {
+                checkTurn();
+            }
+        }
+
+        function generateProceduralZombieMaze() {
+            hWalls = Array(GRID_SIZE - 1).fill().map(() => Array(GRID_SIZE).fill(null));
+            vWalls = Array(GRID_SIZE).fill().map(() => Array(GRID_SIZE - 1).fill(null));
+
+            for (let r = 0; r < GRID_SIZE - 1; r++) {
+                for (let c = 0; c < GRID_SIZE - 1; c++) {
+                    if (Math.random() < 0.45) {
+                        if (Math.random() < 0.5 && r < GRID_SIZE - 1) {
+                            hWalls[r][c] = 'Z_WALL';
+                            hWalls[r][c+1] = 'Z_WALL';
+                        } else if (c < GRID_SIZE - 1) {
+                            vWalls[r][c] = 'Z_WALL';
+                            vWalls[r+1][c] = 'Z_WALL';
+                        }
+                    }
+                }
+            }
+
+            let safe = true;
+            playerStates.forEach(p => {
+                if (getShortestPathDistance(p.row, p.col) === Infinity) {
+                    safe = false;
+                }
+            });
+
+            if (!safe) {
+                generateProceduralZombieMaze();
+            }
+        }
+
+        function buildBoardUI() {
+            const gridBoard = document.getElementById('grid-board');
+            gridBoard.innerHTML = '';
+
+            for (let r = 0; r < GRID_SIZE; r++) {
+                for (let c = 0; c < GRID_SIZE; c++) {
+                    const cell = document.createElement('div');
+                    cell.dataset.row = r;
+                    cell.dataset.col = c;
+                    
+                    const isEven = (r + c) % 2 === 0;
+                    const bgClass = isEven ? 'grid-cell-even' : 'grid-cell-odd';
+
+                    if (selectedGameMode === 'klasik' && r === TARGET_ROW && c === TARGET_COL) {
+                        cell.className = `${bgClass} grid-cell finish-cell flex items-center justify-center w-full h-full`;
+                        cell.innerHTML = `<span class="text-amber-400 text-base sm:text-xl font-bold z-10">★</span>`;
+                    } else {
+                        cell.className = `${bgClass} grid-cell w-full h-full`;
+                    }
+
+                    cell.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        handleCellClick(r, c);
+                    });
+                    gridBoard.appendChild(cell);
+                }
+            }
+
+            playerStates.forEach((player) => {
+                if (!player.active) return;
+                const ball = document.createElement('div');
+                ball.id = `ball-${player.id}`;
+                ball.className = 'player-ball';
+                ball.style.backgroundColor = player.color;
+                ball.style.boxShadow = `0 0 10px ${player.color}`;
+                gridBoard.appendChild(ball);
+            });
+
+            if (selectedGameMode === 'klasik') {
+                buildWallIntersections();
+            }
+            positionBalls();
+        }
+
+        function buildWallIntersections() {
+            const gridBoard = document.getElementById('grid-board');
+            for (let r = 0; r < GRID_SIZE - 1; r++) {
+                for (let c = 0; c < GRID_SIZE - 1; c++) {
+                    const inter = document.createElement('div');
+                    inter.className = 'wall-intersection';
+                    inter.dataset.r = r;
+                    inter.dataset.c = c;
+
+                    const stepPct = 100 / GRID_SIZE;
+                    inter.style.left = `calc(${(c + 1) * stepPct}% - 10px)`;
+                    inter.style.top = `calc(${(r + 1) * stepPct}% - 10px)`;
+                    inter.style.width = '20px';
+                    inter.style.height = '20px';
+
+                    gridBoard.appendChild(inter);
+                }
+            }
+        }
+
+        function positionBalls() {
+            const stepPct = 100 / GRID_SIZE;
+            const ballSizePct = stepPct * 0.7;
+            const offsetPct = (stepPct - ballSizePct) / 2;
+
+            playerStates.forEach((p) => {
+                const ball = document.getElementById(`ball-${p.id}`);
+                if (!ball || !p.active) return;
+
+                const leftPct = p.col * stepPct + offsetPct;
+                const topPct = p.row * stepPct + offsetPct;
+
+                ball.style.width = `${ballSizePct}%`;
+                ball.style.height = `${ballSizePct}%`;
+                ball.style.left = `${leftPct}%`;
+                ball.style.top = `${topPct}%`;
+
+                if (selectedGameMode === 'zombie') {
+                    p.color = p.isZombie ? '#ef4444' : '#3b82f6';
+                }
+                ball.style.backgroundColor = p.color;
+                ball.style.boxShadow = `0 0 12px ${p.color}`;
+            });
+        }
+
+        function updateUI() {
+            playerStates.forEach((p) => {
+                const panel = document.getElementById(`panel-${p.id}`);
+                if (!p.active) {
+                    if (panel) panel.style.display = 'none';
+                    return;
+                }
+                if (panel) panel.style.display = 'flex';
+
+                const dist = getShortestPathDistance(p.row, p.col);
+                
+                const nameEl = document.getElementById(`name-${p.id}`);
+                nameEl.textContent = selectedGameMode === 'zombie' ? (p.isZombie ? `[ZOMBIE] ${p.name}` : `[HUMAN] ${p.name}`) : p.name;
+                nameEl.style.color = p.color;
+
+                const wallWrap = document.getElementById(`walls-wrapper-${p.id}`);
+                if (selectedGameMode === 'zombie') {
+                    if (wallWrap) wallWrap.style.display = 'none';
+                    document.getElementById(`dist-${p.id}`).textContent = '∞';
+                    
+                    panel.className = `glass-panel p-1.5 rounded-xl flex flex-col justify-between border-l-4 ${p.isZombie ? 'border-red-500' : 'border-blue-500'} transition-all duration-300`;
+                } else {
+                    if (wallWrap) wallWrap.style.display = 'inline';
+                    document.getElementById(`walls-${p.id}`).textContent = p.walls;
+                    document.getElementById(`dist-${p.id}`).textContent = dist === Infinity ? '∞' : dist;
+                }
+
+                document.getElementById(`star-${p.id}`).textContent = stars[p.id];
+                
+                const bar = document.getElementById(`bar-${p.id}`);
+                bar.style.width = selectedGameMode === 'klasik' ? `${(p.walls / INITIAL_WALLS) * 100}%` : '100%';
+                bar.style.backgroundColor = p.color;
+
+                if (selectedGameMode === 'klasik' && p.id === currentPlayerIndex && isPlaying) {
+                    panel.classList.add('ring-2', 'ring-white/50', 'bg-slate-800/90');
+                } else if (selectedGameMode === 'klasik') {
+                    panel.classList.remove('ring-2', 'ring-white/50', 'bg-slate-800/90');
+                }
+            });
+
+            highlightMoveableCells();
+            if (selectedGameMode === 'klasik') {
+                updateWallIntersectionHighlights();
+            }
+        }
+
+        function updateWallIntersectionHighlights() {
+            const inters = document.querySelectorAll('.wall-intersection');
+            inters.forEach(i => i.classList.remove('active-selectable'));
+
+            if (!isPlaying || currentPlayerIndex !== localPlayerId || !draggedWallType) return;
+
+            inters.forEach(i => {
+                const r = parseInt(i.dataset.r);
+                const c = parseInt(i.dataset.c);
+                if (canPlaceWall(draggedWallType, r, c)) {
+                    i.classList.add('active-selectable');
+                }
+            });
+        }
+
+        function highlightMoveableCells() {
+            const cells = document.querySelectorAll('.grid-cell');
+            cells.forEach(c => {
+                c.classList.remove('grid-cell-moveable');
+                c.style.backgroundColor = ''; 
+            });
+
+            if (!isPlaying) return;
+
+            if (selectedGameMode === 'klasik') {
+                if (currentPlayerIndex === localPlayerId) {
+                    const currentP = playerStates[localPlayerId];
+                    if (currentP && currentP.active) {
+                        const validMoves = getValidMoves(currentP.row, currentP.col);
+                        validMoves.forEach(m => {
+                            const idx = m.r * GRID_SIZE + m.c;
+                            if (cells[idx]) {
+                                cells[idx].classList.add('grid-cell-moveable');
+                                cells[idx].style.backgroundColor = currentP.color + '77'; 
+                            }
+                        });
+                    }
+                }
+            } else if (selectedGameMode === 'zombie') {
+                const currentP = playerStates[localPlayerId];
+                if (currentP && currentP.active) {
+                    const validMoves = getValidMovesZombie(currentP.row, currentP.col);
+                    validMoves.forEach(m => {
+                        const idx = m.r * GRID_SIZE + m.c;
+                        if (cells[idx]) {
+                            cells[idx].classList.add('grid-cell-moveable');
+                            cells[idx].style.backgroundColor = currentP.color + '99';
+                        }
+                    });
+                }
+            }
+        }
+
+        function handleCellClick(r, c) {
+            if (!isPlaying) return;
+
+            if (selectedGameMode === 'klasik') {
+                if (currentPlayerIndex !== localPlayerId) return;
+                const p = playerStates[localPlayerId];
+                if (!p || !p.active) return;
+                const validMoves = getValidMoves(p.row, p.col);
+
+                const isMoveValid = validMoves.some(m => m.r === r && m.c === c);
+                if (isMoveValid) {
+                    clearTurnIdleTimer();
+                    draggedWallType = null;
+                    socket.emit('GAME_ACTION', {
+                        roomId: activeRoom.id,
+                        actionType: 'MOVE',
+                        payload: { playerIdx: localPlayerId, r, c }
+                    });
+                }
+            } else if (selectedGameMode === 'zombie') {
+                const p = playerStates[localPlayerId];
+                if (!p || !p.active) return;
+
+                const now = Date.now();
+                if (now - lastMoveTime[localPlayerId] < 800) return;
+
+                const validMoves = getValidMovesZombie(p.row, p.col);
+                const isMoveValid = validMoves.some(m => m.r === r && m.c === c);
+                if (isMoveValid) {
+                    lastMoveTime[localPlayerId] = now;
+                    socket.emit('GAME_ACTION', {
+                        roomId: activeRoom.id,
+                        actionType: 'MOVE',
+                        payload: { playerIdx: localPlayerId, r, c }
+                    });
+                }
+            }
+        }
+
+        function setupZombieTimer() {
+            zombieTimerSeconds = 60;
+            updateZombieTimerDisplay();
+
+            if (zombieTimerInterval) clearInterval(zombieTimerInterval);
+            zombieTimerInterval = setInterval(() => {
+                if (!isPlaying || selectedGameMode !== 'zombie') {
+                    clearInterval(zombieTimerInterval);
+                    return;
+                }
+
+                zombieTimerSeconds--;
+                updateZombieTimerDisplay();
+
+                if (zombieTimerSeconds === 5 && !transitionTriggered) {
+                    transitionTriggered = true;
+                    const canvas = document.getElementById('zombie-fog-canvas');
+                    if (canvas) {
+                        canvas.style.transition = 'opacity 5s linear';
+                        canvas.style.opacity = '0';
+                    }
+                }
+
+                if (zombieTimerSeconds <= 0) {
+                    stopZombieTimers();
+                    isPlaying = false;
+                    const humans = playerStates.filter(p => p.active && !p.isZombie);
+                    humans.forEach(h => {
+                        stars[h.id]++;
+                        if (h.socketId === socket.id || (!h.isBot && h.name === currentUsername)) {
+                            addPermanentStar();
+                        }
+                    });
+                    showVictory('HUMAN MENANG!', '#22c55e', 'Human berhasil bertahan selama 1 menit tanpa terinfeksi!');
+                }
+            }, 1000);
+        }
+
+        function updateZombieTimerDisplay() {
+            const m = Math.floor(zombieTimerSeconds / 60).toString().padStart(2, '0');
+            const s = (zombieTimerSeconds % 60).toString().padStart(2, '0');
+            document.getElementById('zombie-timer-display').textContent = `⏱ ${m}:${s}`;
+        }
+
+        function getBFSPath(startRow, startCol, targetRow, targetCol) {
+            if (startRow === targetRow && startCol === targetCol) return [];
+
+            const queue = [{ r: startRow, c: startCol, path: [] }];
+            const visited = Array(GRID_SIZE).fill().map(() => Array(GRID_SIZE).fill(false));
+            visited[startRow][startCol] = true;
+
+            const dr = [-1, 1, 0, 0];
+            const dc = [0, 0, -1, 1];
+
+            while (queue.length > 0) {
+                const { r, c, path } = queue.shift();
+
+                if (r === targetRow && c === targetCol) {
+                    return path;
+                }
+
+                for (let i = 0; i < 4; i++) {
+                    const nr = r + dr[i];
+                    const nc = c + dc[i];
+
+                    if (nr >= 0 && nr < GRID_SIZE && nc >= 0 && nc < GRID_SIZE && !visited[nr][nc]) {
+                        if (!isWallBlocking(r, c, nr, nc)) {
+                            visited[nr][nc] = true;
+                            queue.push({ r: nr, c: nc, path: [...path, { r: nr, c: nc }] });
+                        }
+                    }
+                }
+            }
+            return null;
+        }
+
+        function getDistancesFrom(startR, startC) {
+            const dists = Array(GRID_SIZE).fill().map(() => Array(GRID_SIZE).fill(Infinity));
+            const queue = [{ r: startR, c: startC, dist: 0 }];
+            dists[startR][startC] = 0;
+
+            const dr = [-1, 1, 0, 0];
+            const dc = [0, 0, -1, 1];
+
+            while (queue.length > 0) {
+                const { r, c, dist } = queue.shift();
+
+                for (let i = 0; i < 4; i++) {
+                    const nr = r + dr[i];
+                    const nc = c + dc[i];
+
+                    if (nr >= 0 && nr < GRID_SIZE && nc >= 0 && nc < GRID_SIZE) {
+                        if (!isWallBlocking(r, c, nr, nc) && dists[nr][nc] === Infinity) {
+                            dists[nr][nc] = dist + 1;
+                            queue.push({ r: nr, c: nc, dist: dist + 1 });
+                        }
+                    }
+                }
+            }
+            return dists;
+        }
+
+        function isInsideTorchVision(r, c) {
+            return (
+                (r <= 1 && c <= 1) ||
+                (r <= 1 && c >= GRID_SIZE - 2) ||
+                (r >= GRID_SIZE - 2 && c <= 1) ||
+                (r >= GRID_SIZE - 2 && c >= GRID_SIZE - 2)
+            );
+        }
+
+        /* --- MODE ZOMBIE AI & OBOR SUDUT (BATALKAN TUJUAN JIKA HUMAN KELUAR) --- */
+        function setupZombieAiLoop() {
+            if (zombieAiLoop) clearInterval(zombieAiLoop);
+            zombieAiLoop = setInterval(() => {
+                if (!isPlaying || selectedGameMode !== 'zombie') return;
+
+                // Cek apakah ada human yang berada di area obor sudut
+                let humanInAnyTorch = null;
+                for (let h of playerStates.filter(p => p.active && !p.isZombie)) {
+                    if (isInsideTorchVision(h.row, h.col)) {
+                        humanInAnyTorch = h;
+                        break;
+                    }
+                }
+
+                playerStates.forEach(bot => {
+                    if (bot.active && bot.isBot) {
+                        const validMoves = getValidMovesZombie(bot.row, bot.col);
+                        if (validMoves.length > 0) {
+                            let targetMove = null;
+
+                            if (bot.isZombie) {
+                                // 1. Cek penglihatan langsung (adjacent)
+                                const visibleHumans = playerStates.filter(p => p.active && !p.isZombie && Math.abs(p.row - bot.row) <= 1 && Math.abs(p.col - bot.col) <= 1);
+                                
+                                if (visibleHumans.length > 0) {
+                                    const targetH = visibleHumans[0];
+                                    botTargetPos[bot.id] = { r: targetH.row, c: targetH.col };
+                                } else if (humanInAnyTorch) {
+                                    // 2. Jika human di area obor, kejar ke sana
+                                    botTargetPos[bot.id] = { r: humanInAnyTorch.row, c: humanInAnyTorch.col };
+                                } else {
+                                    // 3. Jika human keluar dari area obor dan tidak terlihat langsung, batalkan tujuan ke sana!
+                                    botTargetPos[bot.id] = null;
+                                }
+
+                                if (botTargetPos[bot.id]) {
+                                    if (bot.row === botTargetPos[bot.id].r && bot.col === botTargetPos[bot.id].c) {
+                                        botTargetPos[bot.id] = null;
+                                    } else {
+                                        const bfsPath = getBFSPath(bot.row, bot.col, botTargetPos[bot.id].r, botTargetPos[bot.id].c);
+                                        if (bfsPath && bfsPath.length > 0) {
+                                            targetMove = bfsPath[0];
+                                        } else {
+                                            botTargetPos[bot.id] = null;
+                                        }
+                                    }
+                                }
+
+                                if (!botTargetPos[bot.id]) {
+                                    if (!botPatrolTargets[bot.id] || (bot.row === botPatrolTargets[bot.id].r && bot.col === botPatrolTargets[bot.id].c)) {
+                                        botPatrolTargets[bot.id] = {
+                                            r: Math.floor(Math.random() * GRID_SIZE),
+                                            c: Math.floor(Math.random() * GRID_SIZE)
+                                        };
+                                    }
+                                    const patrolPath = getBFSPath(bot.row, bot.col, botPatrolTargets[bot.id].r, botPatrolTargets[bot.id].c);
+                                    if (patrolPath && patrolPath.length > 0) {
+                                        targetMove = patrolPath[0];
+                                    }
+                                }
+                            } else {
+                                // --- LOGIKA BOT HUMAN ---
+                                const zombies = playerStates.filter(p => p.active && p.isZombie);
+                                let nearestZombie = null;
+                                let minDist = Infinity;
+
+                                if (zombies.length > 0) {
+                                    zombies.sort((a, b) => (Math.abs(a.row - bot.row) + Math.abs(a.col - bot.col)) - (Math.abs(b.row - bot.row) + Math.abs(b.col - bot.col)));
+                                    nearestZombie = zombies[0];
+                                    minDist = Math.abs(nearestZombie.row - bot.row) + Math.abs(nearestZombie.col - bot.col);
+                                }
+
+                                const isAlert = nearestZombie && minDist <= 5;
+
+                                if (isAlert) {
+                                    botHumanAlertState[bot.id] = true;
+                                    const zombieDists = getDistancesFrom(nearestZombie.row, nearestZombie.col);
+                                    validMoves.sort((a, b) => {
+                                        const distA = zombieDists[a.r][a.c];
+                                        const distB = zombieDists[b.r][b.c];
+                                        if (distA === Infinity && distB !== Infinity) return -1;
+                                        if (distB === Infinity && distA !== Infinity) return 1;
+                                        return distB - distA;
+                                    });
+                                    targetMove = validMoves[0];
+                                } else {
+                                    botHumanAlertState[bot.id] = false;
+                                    if (!botPatrolTargets[bot.id] || (bot.row === botPatrolTargets[bot.id].r && bot.col === botPatrolTargets[bot.id].c)) {
+                                        botPatrolTargets[bot.id] = {
+                                            r: Math.floor(Math.random() * GRID_SIZE),
+                                            c: Math.floor(Math.random() * GRID_SIZE)
+                                        };
+                                    }
+                                    const patrolPath = getBFSPath(bot.row, bot.col, botPatrolTargets[bot.id].r, botPatrolTargets[bot.id].c);
+                                    if (patrolPath && patrolPath.length > 0) {
+                                        targetMove = patrolPath[0];
+                                    } else {
+                                        botPatrolTargets[bot.id] = null;
+                                    }
+                                }
+                            }
+
+                            if (!targetMove) {
+                                targetMove = validMoves[Math.floor(Math.random() * validMoves.length)];
+                            }
+
+                            const firstActiveHuman = playerStates.find(p => p.active && !p.isBot);
+                            if (firstActiveHuman && firstActiveHuman.socketId === socket.id) {
+                                socket.emit('GAME_ACTION', {
+                                    roomId: activeRoom.id,
+                                    actionType: 'MOVE',
+                                    payload: { playerIdx: bot.id, r: targetMove.r, c: targetMove.c }
+                                });
+                            }
+                        }
+                    }
+                });
+            }, 1000);
+        }
+
+        function checkZombieInfections() {
+            const zombies = playerStates.filter(p => p.active && p.isZombie);
+            const humans = playerStates.filter(p => p.active && !p.isZombie);
+
+            zombies.forEach(z => {
+                humans.forEach(h => {
+                    if (z.row === h.row && z.col === h.col) {
+                        h.isZombie = true;
+                        h.color = '#ef4444';
+                        soundFX.playInfect();
+                        const ball = document.getElementById(`ball-${h.id}`);
+                        if (ball) {
+                            ball.style.backgroundColor = '#ef4444';
+                            ball.style.boxShadow = '0 0 12px #ef4444';
+                        }
+                        updateUI();
+                    }
+                });
+            });
+
+            const remainingHumans = playerStates.filter(p => p.active && !p.isZombie);
+            if (remainingHumans.length === 0) {
+                stopZombieTimers();
+                isPlaying = false;
+                initialZombieCoreIds.forEach(zIdx => {
+                    const z = playerStates[zIdx];
+                    if (z) {
+                        stars[z.id]++;
+                        if (z.socketId === socket.id || (!z.isBot && z.name === currentUsername)) {
+                            addPermanentStar();
+                        }
+                    }
+                });
+                showVictory('ZOMBIE MENANG!', '#ef4444', 'Semua human telah terinfeksi! 1 Poin ★ diberikan kepada 2 Zombie Inti.');
+            }
+        }
+
+        function stopZombieTimers() {
+            if (zombieTimerInterval) clearInterval(zombieTimerInterval);
+            if (zombieAiLoop) clearInterval(zombieAiLoop);
+            if (zombieAnimFrameId) cancelAnimationFrame(zombieAnimFrameId);
+        }
+
+        /* --- RENDERING FOG OF WAR DENGAN INNER BLUR PADA TEPI AREA PENGLIHATAN --- */
+        function startZombieAnimLoop() {
+            function renderLoop() {
+                if (!isPlaying || selectedGameMode !== 'zombie') return;
+                renderZombieFog();
+                zombieAnimFrameId = requestAnimationFrame(renderLoop);
+            }
+            renderLoop();
+        }
+
+        function renderZombieFog() {
+            const canvas = document.getElementById('zombie-fog-canvas');
+            if (!canvas || selectedGameMode !== 'zombie') return;
+
+            const gridBoard = document.getElementById('grid-board');
+            canvas.width = gridBoard.clientWidth;
+            canvas.height = gridBoard.clientHeight;
+
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // 1. Lapisan Hitam Pekat Fog of War
+            ctx.fillStyle = '#030712';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            const stepX = canvas.width / GRID_SIZE;
+            const stepY = canvas.height / GRID_SIZE;
+            const localP = playerStates[localPlayerId];
+
+            if (!localP || !localP.active) return;
+
+            // 2. Lubang Radar 3x3 dengan Efek Blur ke Dalam (Inner Fade Vignette)
+            ctx.globalCompositeOperation = 'destination-out';
+
+            const px = (localP.col + 0.5) * stepX;
+            const py = (localP.row + 0.5) * stepY;
+            const playerRadius = stepX * 1.5;
+
+            ctx.save();
+            const pGrad = ctx.createRadialGradient(px, py, playerRadius * 0.4, px, py, playerRadius);
+            pGrad.addColorStop(0, 'rgba(0,0,0,1)');
+            pGrad.addColorStop(1, 'rgba(0,0,0,0)');
+            ctx.fillStyle = pGrad;
+            ctx.beginPath();
+            ctx.arc(px, py, playerRadius, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+
+            // 3. Pencerahan Obor di 4 Sudut dengan Inner Fade Blur
+            const cornerTorchCenters = [
+                { r: 0.5, c: 0.5 },
+                { r: 0.5, c: GRID_SIZE - 1.5 },
+                { r: GRID_SIZE - 1.5, c: 0.5 },
+                { r: GRID_SIZE - 1.5, c: GRID_SIZE - 1.5 }
+            ];
+
+            cornerTorchCenters.forEach(tc => {
+                const tcx = (tc.c + 0.5) * stepX;
+                const tcy = (tc.r + 0.5) * stepY;
+                const torchRadius = stepX * 1.4;
+
+                ctx.save();
+                const tGrad = ctx.createRadialGradient(tcx, tcy, torchRadius * 0.3, tcx, tcy, torchRadius);
+                tGrad.addColorStop(0, 'rgba(0,0,0,1)');
+                tGrad.addColorStop(1, 'rgba(0,0,0,0)');
+                ctx.fillStyle = tGrad;
+                ctx.beginPath();
+                ctx.arc(tcx, tcy, torchRadius, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+            });
+
+            // 4. Kembalikan Mode Rendering Normal untuk Dinding HANYA DI AREA TERLIHAT
+            ctx.globalCompositeOperation = 'source-over';
+
+            ctx.fillStyle = '#ffffff';
+            ctx.shadowColor = '#ffffff';
+            ctx.shadowBlur = 4;
+
+            for (let r = 0; r < GRID_SIZE; r++) {
+                for (let c = 0; c < GRID_SIZE; c++) {
+                    if (r < GRID_SIZE - 1 && hWalls[r] && hWalls[r][c] !== null) {
+                        if (isInsideTorchVision(r, c) || isInsideTorchVision(r + 1, c) || (Math.abs(r - localP.row) <= 1 && Math.abs(c - localP.col) <= 1)) {
+                            ctx.fillRect(c * stepX, (r + 1) * stepY - 3, stepX, 6);
+                        }
+                    }
+                    if (c < GRID_SIZE - 1 && vWalls[r] && vWalls[r][c] !== null) {
+                        if (isInsideTorchVision(r, c) || isInsideTorchVision(r, c + 1) || (Math.abs(r - localP.row) <= 1 && Math.abs(c - localP.col) <= 1)) {
+                            ctx.fillRect((c + 1) * stepX - 3, r * stepY, 6, stepY);
+                        }
+                    }
+                }
+            }
+            ctx.shadowBlur = 0;
+
+            // --- ANIMASI API OBOR & KAYU PENDEK MENANCAP DI SUDUT (MENGARAH KE TENGAH) ---
+            const time = Date.now() / 120;
+            const torchBorderPositions = [
+                { x: 6, y: 6, angleX: 1, angleY: 1 },                               
+                { x: canvas.width - 6, y: 6, angleX: -1, angleY: 1 },                 
+                { x: 6, y: canvas.height - 6, angleX: 1, angleY: -1 },               
+                { x: canvas.width - 6, y: canvas.height - 6, angleX: -1, angleY: -1 }   
+            ];
+
+            torchBorderPositions.forEach((tp, idx) => {
+                ctx.save();
+                ctx.fillStyle = '#654321';
+                ctx.strokeStyle = '#3d2614';
+                ctx.lineWidth = 1.5;
+                const stakeW = 6;
+                const stakeH = 14; 
+                let sx = tp.x;
+                let sy = tp.y;
+                if (tp.angleX < 0) sx -= stakeW;
+                if (tp.angleY < 0) sy -= stakeH;
+                ctx.fillRect(sx, sy, stakeW, stakeH);
+                ctx.strokeRect(sx, sy, stakeW, stakeH);
+                ctx.restore();
+
+                const flameX = tp.x + (tp.angleX * 8);
+                const flameY = tp.y + (tp.angleY * 8);
+                const flickerRadius = (stepX * 0.28) + Math.sin(time + idx * 1.5) * 2;
+                
+                const grad = ctx.createRadialGradient(flameX, flameY, 2, flameX, flameY, flickerRadius);
+                grad.addColorStop(0, 'rgba(255, 230, 100, 0.95)');
+                grad.addColorStop(0.5, 'rgba(255, 120, 20, 0.7)');
+                grad.addColorStop(1, 'rgba(255, 50, 0, 0)');
+                
+                ctx.fillStyle = grad;
+                ctx.beginPath();
+                ctx.arc(flameX, flameY, flickerRadius, 0, Math.PI * 2);
+                ctx.fill();
+
+                ctx.fillStyle = '#ffeedd';
+                ctx.beginPath();
+                const flameHeightOffset = Math.sin(time * 2 + idx) * 2;
+                ctx.arc(flameX, flameY + flameHeightOffset, stepX * 0.08, 0, Math.PI * 2);
+                ctx.fill();
+            });
+
+            // --- TAMPILAN ALERT MERAH (!) PADA MUSUH ---
+            const teammates = playerStates.filter(p => p.active && p.isZombie === localP.isZombie);
+            const enemies = playerStates.filter(p => p.active && p.isZombie !== localP.isZombie);
+
+            if (!localP.isZombie) {
+                const zombies = enemies;
+                let nearestZombie = null;
+                let minDist = Infinity;
+
+                zombies.forEach(z => {
+                    const dist = Math.abs(z.row - localP.row) + Math.abs(z.col - localP.col);
+                    if (dist < minDist) {
+                        minDist = dist;
+                        nearestZombie = z;
+                    }
+                });
+
+                if (nearestZombie && minDist <= 5 && minDist > 0) {
+                    const dr = Math.sign(nearestZombie.row - localP.row);
+                    const dc = Math.sign(nearestZombie.col - localP.col);
+                    const warnR = localP.row + dr;
+                    const warnC = localP.col + dc;
+
+                    if (warnR >= 0 && warnR < GRID_SIZE && warnC >= 0 && warnC < GRID_SIZE) {
+                        ctx.fillStyle = '#ef4444';
+                        ctx.font = 'bold 24px Orbitron, sans-serif';
+                        ctx.textAlign = 'center';
+                        ctx.textBaseline = 'middle';
+                        ctx.fillText('!', (warnC + 0.5) * stepX, (warnR + 0.5) * stepY);
+                    }
+                }
+
+                enemies.forEach(z => {
+                    const seenByMe = Math.abs(z.row - localP.row) <= 1 && Math.abs(z.col - localP.col) <= 1;
+                    if (!seenByMe) {
+                        let seenByTeammate = false;
+                        teammates.forEach(tm => {
+                            if (Math.abs(z.row - tm.row) <= 1 && Math.abs(z.col - tm.col) <= 1) {
+                                seenByTeammate = true;
+                            }
+                        });
+
+                        if (seenByTeammate) {
+                            ctx.fillStyle = '#ef4444';
+                            ctx.font = 'bold 24px Orbitron, sans-serif';
+                            ctx.textAlign = 'center';
+                            ctx.textBaseline = 'middle';
+                            ctx.fillText('!', (z.col + 0.5) * stepX, (z.row + 0.5) * stepY);
+                        }
+                    }
+                });
+            } else {
+                enemies.forEach(h => {
+                    const seenByMe = Math.abs(h.row - localP.row) <= 1 && Math.abs(h.col - localP.col) <= 1;
+                    if (!seenByMe) {
+                        let seenByTeammate = false;
+                        teammates.forEach(tm => {
+                            if (Math.abs(h.row - tm.row) <= 1 && Math.abs(h.col - tm.col) <= 1) {
+                                seenByTeammate = true;
+                            }
+                        });
+
+                        if (seenByTeammate) {
+                            ctx.fillStyle = '#ef4444';
+                            ctx.font = 'bold 24px Orbitron, sans-serif';
+                            ctx.textAlign = 'center';
+                            ctx.textBaseline = 'middle';
+                            ctx.fillText('!', (h.col + 0.5) * stepX, (h.row + 0.5) * stepY);
+                        }
+                    }
+                });
+            }
+        }
+
+        function getValidMovesZombie(pRow, pCol) {
+            const moves = [];
+            const directions = [{ dr: -1, dc: 0 }, { dr: 1, dc: 0 }, { dr: 0, dc: -1 }, { dr: 0, dc: 1 }];
+
+            directions.forEach(({ dr, dc }) => {
+                const nr = pRow + dr;
+                const nc = pCol + dc;
+
+                if (nr >= 0 && nr < GRID_SIZE && nc >= 0 && nc < GRID_SIZE) {
+                    if (!isWallBlocking(pRow, pCol, nr, nc)) {
+                        moves.push({ r: nr, c: nc });
+                    }
+                }
+            });
+            return moves;
+        }
+
+        /* --- MODE KLASIK SCRIPT --- */
+        function advanceTurn() {
+            clearTurnIdleTimer();
+            let nextIdx = currentPlayerIndex;
+            for (let i = 1; i <= 4; i++) {
+                nextIdx = (currentPlayerIndex + i) % 4;
+                if (playerStates[nextIdx] && playerStates[nextIdx].active) break;
+            }
+            currentPlayerIndex = nextIdx;
+            updateUI();
+            checkTurn();
+        }
+
+        function clearTurnIdleTimer() {
+            if (turnIdleTimer) {
+                clearTimeout(turnIdleTimer);
+                turnIdleTimer = null;
+            }
+        }
+
+        function checkTurn() {
+            if (!isPlaying || selectedGameMode !== 'klasik') return;
+            const currentP = playerStates[currentPlayerIndex];
+            if (!currentP || !currentP.active) {
+                advanceTurn();
+                return;
+            }
+
+            const validMoves = getValidMoves(currentP.row, currentP.col);
+            if (validMoves.length === 0) {
+                setTimeout(() => { advanceTurn(); }, 400);
+                return;
+            }
+
+            if (currentP.isBot) {
+                const firstActiveHuman = playerStates.find(p => p.active && !p.isBot);
+                if (firstActiveHuman && firstActiveHuman.socketId === socket.id) {
+                    setTimeout(processAITurn, 400);
+                }
+            } else {
+                if (currentP.id === localPlayerId) {
+                    clearTurnIdleTimer();
+                    turnIdleTimer = setTimeout(() => {
+                        if (isPlaying && currentPlayerIndex === localPlayerId) {
+                            socket.emit('PLAYER_TIMEOUT', { roomId: activeRoom.id, playerIdx: localPlayerId });
+                        }
+                    }, 30000);
+                }
+            }
+        }
+
+        function getShortestPathDistance(startRow, startCol) {
+            if (startRow === TARGET_ROW && startCol === TARGET_COL) return 0;
+            const queue = [{ r: startRow, c: startCol, dist: 0 }];
+            const visited = Array(GRID_SIZE).fill().map(() => Array(GRID_SIZE).fill(false));
+            visited[startRow][startCol] = true;
+
+            const dr = [-1, 1, 0, 0];
+            const dc = [0, 0, -1, 1];
+
+            while (queue.length > 0) {
+                const { r, c, dist } = queue.shift();
+                if (r === TARGET_ROW && c === TARGET_COL) return dist;
+
+                for (let i = 0; i < 4; i++) {
+                    const nr = r + dr[i];
+                    const nc = c + dc[i];
+                    if (nr >= 0 && nr < GRID_SIZE && nc >= 0 && nc < GRID_SIZE && !visited[nr][nc]) {
+                        if (!isWallBlocking(r, c, nr, nc)) {
+                            visited[nr][nc] = true;
+                            queue.push({ r: nr, c: nc, dist: dist + 1 });
+                        }
+                    }
+                }
+            }
+            return Infinity;
+        }
+
+        function isWallBlocking(r1, c1, r2, c2) {
+            if (r1 === r2) {
+                const minC = Math.min(c1, c2);
+                if (minC >= 0 && minC < GRID_SIZE - 1) {
+                    if (vWalls[r1][minC] !== null) return true;
+                }
+            } else if (c1 === c2) {
+                const minR = Math.min(r1, r2);
+                if (minR >= 0 && minR < GRID_SIZE - 1) {
+                    if (hWalls[minR][c1] !== null) return true;
+                }
+            }
+            return false;
+        }
+
+        function getValidMoves(pRow, pCol) {
+            const moves = [];
+            const directions = [{ dr: -1, dc: 0 }, { dr: 1, dc: 0 }, { dr: 0, dc: -1 }, { dr: 0, dc: 1 }];
+            const occupied = playerStates.filter(p => p.active).map(p => `${p.row},${p.col}`);
+
+            directions.forEach(({ dr, dc }) => {
+                const nr = pRow + dr;
+                const nc = pCol + dc;
+
+                if (nr >= 0 && nr < GRID_SIZE && nc >= 0 && nc < GRID_SIZE) {
+                    if (!isWallBlocking(pRow, pCol, nr, nc)) {
+                        if (occupied.includes(`${nr},${nc}`)) {
+                            const jnr = nr + dr;
+                            const jnc = nc + dc;
+                            if (jnr >= 0 && jnr < GRID_SIZE && jnc >= 0 && jnc < GRID_SIZE) {
+                                if (!isWallBlocking(nr, nc, jnr, jnc) && !occupied.includes(`${jnr},${jnc}`)) {
+                                    moves.push({ r: jnr, c: jnc });
+                                }
+                            }
+                        } else {
+                            moves.push({ r: nr, c: nc });
+                        }
+                    }
+                }
+            });
+            return moves;
+        }
+
+        function allPlayersHaveValidPath() {
+            for (let p of playerStates) {
+                if (p.active && getShortestPathDistance(p.row, p.col) === Infinity) return false;
+            }
+            return true;
+        }
+
+        function canPlaceWall(type, r, c) {
+            if (!type || r < 0 || r >= GRID_SIZE - 1 || c < 0 || c >= GRID_SIZE - 1) return false;
+
+            if (type === 'H') {
+                if (hWalls[r][c] !== null || hWalls[r][c + 1] !== null) return false;
+                if (vWalls[r] && vWalls[r + 1] && vWalls[r][c] !== null && vWalls[r + 1][c] !== null) {
+                    if (vWalls[r][c] === vWalls[r + 1][c]) return false;
+                }
+            } else {
+                if (vWalls[r][c] !== null || vWalls[r + 1][c] !== null) return false;
+                if (hWalls[r] && hWalls[r][c] !== null && hWalls[r][c + 1] !== null) {
+                    if (hWalls[r][c] === hWalls[r][c + 1]) return false;
+                }
+            }
+
+            if (selectedGameMode === 'klasik') {
+                if (type === 'H') { hWalls[r][c] = '#dummy'; hWalls[r][c + 1] = '#dummy'; }
+                else { vWalls[r][c] = '#dummy'; vWalls[r + 1][c] = '#dummy'; }
+
+                const valid = allPlayersHaveValidPath();
+
+                if (type === 'H') { hWalls[r][c] = null; hWalls[r][c + 1] = null; }
+                else { vWalls[r][c] = null; vWalls[r + 1][c] = null; }
+
+                return valid;
+            }
+            return true;
+        }
+
+        function renderWall(type, r, c, color) {
+            const gridBoard = document.getElementById('grid-board');
+            const stepPct = 100 / GRID_SIZE;
+            const wall = document.createElement('div');
+            wall.className = 'wall-placed';
+            
+            const wallColor = (selectedGameMode === 'zombie') ? '#ffffff' : color;
+            wall.style.backgroundColor = wallColor;
+            wall.style.color = wallColor;
+            wall.style.boxShadow = `0 0 8px ${wallColor}`;
+
+            if (type === 'H') {
+                wall.style.width = `${stepPct * 2}%`;
+                wall.style.height = `6px`;
+                wall.style.left = `${c * stepPct}%`;
+                wall.style.top = `calc(${(r + 1) * stepPct}% - 3px)`;
+            } else {
+                wall.style.width = `6px`;
+                wall.style.height = `${stepPct * 2}%`;
+                wall.style.left = `calc(${(c + 1) * stepPct}% - 3px)`;
+                wall.style.top = `${r * stepPct}%`;
+            }
+            gridBoard.appendChild(wall);
+        }
+
+        function executeWallPlacement(type, r, c, player) {
+            wallCounter++;
+            const wallId = `W_${wallCounter}`;
+            if (type === 'H') {
+                hWalls[r][c] = wallId;
+                hWalls[r][c + 1] = wallId;
+            } else {
+                vWalls[r][c] = wallId;
+                vWalls[r + 1][c] = wallId;
+            }
+            player.walls--;
+            renderWall(type, r, c, player.color);
+            soundFX.playWall();
+        }
+
+        function processAITurn() {
+            if (!isPlaying || selectedGameMode !== 'klasik') return;
+            const bot = playerStates[currentPlayerIndex];
+            if (!bot || !bot.active) return;
+
+            const validMoves = getValidMoves(bot.row, bot.col);
+            if (validMoves.length === 0) {
+                setTimeout(() => { advanceTurn(); }, 300);
+                return;
+            }
+
+            let bestMove = null;
+            let minDistance = getShortestPathDistance(bot.row, bot.col);
+
+            validMoves.forEach(m => {
+                const dist = getShortestPathDistance(m.r, m.c);
+                if (dist < minDistance) {
+                    minDistance = dist;
+                    bestMove = m;
+                }
+            });
+
+            if (!bestMove && validMoves.length > 0) {
+                bestMove = validMoves[Math.floor(Math.random() * validMoves.length)];
+            }
+
+            let placedWall = false;
+            if (bot.walls > 0 && Math.random() < 0.6) {
+                const opponents = playerStates.filter(p => p.id !== bot.id && p.active);
+                if (opponents.length > 0) {
+                    opponents.sort((a, b) => getShortestPathDistance(a.row, a.col) - getShortestPathDistance(b.row, b.col));
+                    const leadOpp = opponents[0];
+                    const oppDist = getShortestPathDistance(leadOpp.row, leadOpp.col);
+
+                    if (oppDist <= minDistance + 2) {
+                        let bestWall = null;
+                        let maxDelay = 0;
+                        for (let type of ['H', 'V']) {
+                            for (let r = Math.max(0, leadOpp.row - 2); r <= Math.min(GRID_SIZE - 2, leadOpp.row + 2); r++) {
+                                for (let c = Math.max(0, leadOpp.col - 2); c <= Math.min(GRID_SIZE - 2, leadOpp.col + 2); c++) {
+                                    if (canPlaceWall(type, r, c)) {
+                                        const dummyId = `AI_W_${r}_${c}`;
+                                        if (type === 'H') { hWalls[r][c] = dummyId; hWalls[r][c + 1] = dummyId; }
+                                        else { vWalls[r][c] = dummyId; vWalls[r + 1][c] = dummyId; }
+
+                                        const delay = getShortestPathDistance(leadOpp.row, leadOpp.col) - oppDist;
+
+                                        if (type === 'H') { hWalls[r][c] = null; hWalls[r][c + 1] = null; }
+                                        else { vWalls[r][c] = null; vWalls[r + 1][c] = null; }
+
+                                        if (delay > maxDelay) {
+                                            maxDelay = delay;
+                                            bestWall = { type, r, c };
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        if (bestWall && maxDelay >= 1) {
+                            socket.emit('GAME_ACTION', {
+                                roomId: activeRoom.id,
+                                actionType: 'WALL',
+                                payload: { playerIdx: bot.id, type: bestWall.type, r: bestWall.r, c: bestWall.c }
+                            });
+                            placedWall = true;
+                        }
+                    }
+                }
+            }
+
+            if (!placedWall && bestMove) {
+                socket.emit('GAME_ACTION', {
+                    roomId: activeRoom.id,
+                    actionType: 'MOVE',
+                    payload: { playerIdx: bot.id, r: bestMove.r, c: bestMove.c }
+                });
+            } else if (!placedWall) {
+                advanceTurn();
+            }
+        }
+
+        function showVictory(title, color, desc) {
+            clearTurnIdleTimer();
+            stopZombieTimers();
+            isPlaying = false;
+            document.getElementById('winner-name').textContent = title;
+            document.getElementById('winner-name').style.color = color;
+            document.getElementById('winner-desc').textContent = desc;
+            document.getElementById('victory-modal').classList.remove('hidden');
+        }
+
+        document.getElementById('btn-next-round').addEventListener('click', () => {
+            soundFX.playClick();
+            document.getElementById('victory-modal').classList.add('hidden');
+            if (activeRoom) socket.emit('LEAVE_LOBBY', { roomId: activeRoom.id });
+            activeRoom = null;
+            showPage(pageRooms);
+            socket.emit('GET_ROOMS');
+        });
+
+        document.getElementById('btn-exit-game').addEventListener('click', () => {
+            soundFX.playClick();
+            clearTurnIdleTimer();
+            stopZombieTimers();
+            isPlaying = false;
+            if (activeRoom) socket.emit('LEAVE_LOBBY', { roomId: activeRoom.id });
+            activeRoom = null;
+            showPage(pageRooms);
+            socket.emit('GET_ROOMS');
+        });
+
+        function setupFastTouchDrag() {
+            const dockH = document.getElementById('dock-wall-h');
+            const dockV = document.getElementById('dock-wall-v');
+            const ghost = document.getElementById('drag-ghost');
+            let activeIntersection = null;
+
+            function startDrag(type, clientX, clientY) {
+                if (selectedGameMode !== 'klasik' || currentPlayerIndex !== localPlayerId || !isPlaying) return;
+                const p = playerStates[localPlayerId];
+                if (!p || !p.active || p.walls <= 0) return;
+
+                soundFX.playClick();
+                draggedWallType = type;
+                updateWallIntersectionHighlights();
+
+                ghost.style.display = 'block';
+                ghost.style.left = `${clientX}px`;
+                ghost.style.top = `${clientY}px`;
+
+                if (type === 'H') {
+                    ghost.style.width = '60px';
+                    ghost.style.height = '14px';
+                    ghost.style.backgroundColor = p.color;
+                } else {
+                    ghost.style.width = '14px';
+                    ghost.style.height = '60px';
+                    ghost.style.backgroundColor = p.color;
+                }
+            }
+
+            function moveDrag(clientX, clientY) {
+                if (!draggedWallType) return;
+                ghost.style.left = `${clientX}px`;
+                ghost.style.top = `${clientY}px`;
+
+                const elemUnder = document.elementFromPoint(clientX, clientY);
+                const inter = elemUnder ? elemUnder.closest('.wall-intersection') : null;
+
+                document.querySelectorAll('.wall-intersection').forEach(el => el.classList.remove('drag-over-valid', 'drag-over-invalid'));
+
+                if (inter) {
+                    const r = parseInt(inter.dataset.r);
+                    const c = parseInt(inter.dataset.c);
+                    const valid = canPlaceWall(draggedWallType, r, c);
+                    inter.classList.add(valid ? 'drag-over-valid' : 'drag-over-invalid');
+                    activeIntersection = inter;
+                } else {
+                    activeIntersection = null;
+                }
+            }
+
+            function endDrag() {
+                if (!draggedWallType) return;
+                if (activeIntersection) {
+                    const r = parseInt(activeIntersection.dataset.r);
+                    const c = parseInt(activeIntersection.dataset.c);
+                    if (canPlaceWall(draggedWallType, r, c)) {
+                        clearTurnIdleTimer();
+                        socket.emit('GAME_ACTION', {
+                            roomId: activeRoom.id,
+                            actionType: 'WALL',
+                            payload: { playerIdx: localPlayerId, type: draggedWallType, r, c }
+                        });
+                    }
+                }
+                document.querySelectorAll('.wall-intersection').forEach(el => el.classList.remove('drag-over-valid', 'drag-over-invalid'));
+                ghost.style.display = 'none';
+                draggedWallType = null;
+                activeIntersection = null;
+                updateWallIntersectionHighlights();
+            }
+
+            [ { el: dockH, type: 'H' }, { el: dockV, type: 'V' } ].forEach(item => {
+                if (!item.el) return;
+                item.el.addEventListener('touchstart', (e) => {
+                    const t = e.touches[0];
+                    startDrag(item.type, t.clientX, t.clientY);
+                }, { passive: true });
+                item.el.addEventListener('mousedown', (e) => {
+                    startDrag(item.type, e.clientX, e.clientY);
+                });
+            });
+
+            window.addEventListener('touchmove', (e) => {
+                if (draggedWallType && e.touches.length > 0) {
+                    const t = e.touches[0];
+                    moveDrag(t.clientX, t.clientY);
+                }
+            }, { passive: true });
+
+            window.addEventListener('mousemove', (e) => {
+                if (draggedWallType) moveDrag(e.clientX, e.clientY);
+            });
+
+            window.addEventListener('touchend', endDrag);
+            window.addEventListener('mouseup', endDrag);
+        }
+
+        window.onload = () => {
+            const savedUser = localStorage.getItem('wallrush_username');
+            if (savedUser) {
+                currentUsername = savedUser;
+                document.getElementById('display-username').textContent = currentUsername;
+                document.getElementById('user-avatar').textContent = currentUsername.charAt(0).toUpperCase();
+                updatePermanentStarsUI();
+                showPage(pageMenu);
+            } else {
+                showPage(pageLogin);
+            }
+        };
+    </script>
+</body>
+</html>
